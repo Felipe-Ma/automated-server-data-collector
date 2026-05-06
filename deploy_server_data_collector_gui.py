@@ -23,7 +23,7 @@ import tempfile
 import threading
 import traceback
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Dict, Union
 
 APP_TITLE = "Server Data Collector Linux Deployer"
 DEFAULT_API_ENDPOINT = "https://serverdashboard.elements.local/update"
@@ -32,8 +32,11 @@ DEFAULT_REMOTE_DIR = "/opt/server-data-collector"
 DEFAULT_CERT_DIR = "/opt/certs"
 DEFAULT_SERVICE_NAME = "server-data-collector"
 LOG_PATH = Path.home() / ".server-data-collector-deployer.log"
+PROJECT_DIR = Path(__file__).resolve().parent
+DEFAULT_LOCAL_CERT_DIR = PROJECT_DIR / "certs"
+DEFAULT_LOCAL_ROOT_CRT = DEFAULT_LOCAL_CERT_DIR / "root.crt"
 
-Config = dict[str, str | bool]
+Config = Dict[str, Union[str, bool]]
 LogCallback = Callable[[str], None]
 
 
@@ -76,6 +79,17 @@ def validate_config(config: Config) -> Config:
     return config
 
 
+def default_root_crt_path() -> Path:
+    """Return the preferred local root.crt path for interactive/default runs."""
+    certs_path = DEFAULT_LOCAL_ROOT_CRT
+    if certs_path.is_file():
+        return certs_path
+    project_root_crt = PROJECT_DIR / "root.crt"
+    if project_root_crt.is_file():
+        return project_root_crt
+    return certs_path
+
+
 def default_config() -> Config:
     return {
         "host": "",
@@ -85,7 +99,7 @@ def default_config() -> Config:
         "ssh_key": "",
         "ssh_password": "",
         "sudo_password": "",
-        "root_crt": "",
+        "root_crt": str(default_root_crt_path()),
         "api_endpoint": DEFAULT_API_ENDPOINT,
         "server_id": "",
         "rack_location": "",
@@ -302,7 +316,7 @@ class DeploymentApp:
             "ssh_key": tk.StringVar(),
             "ssh_password": tk.StringVar(),
             "sudo_password": tk.StringVar(),
-            "root_crt": tk.StringVar(),
+            "root_crt": tk.StringVar(value=str(default_root_crt_path())),
             "api_endpoint": tk.StringVar(value=DEFAULT_API_ENDPOINT),
             "server_id": tk.StringVar(),
             "rack_location": tk.StringVar(),
@@ -444,6 +458,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--gui", action="store_true", help="open the Tkinter GUI instead of using command-line options")
+    parser.add_argument("--interactive", action="store_true", help="prompt for deployment settings in an interactive shell")
     parser.add_argument("--host", help="target server IP address or DNS name")
     parser.add_argument("--ssh-user", default="root", help="SSH username")
     parser.add_argument("--ssh-port", default="22", help="SSH port")
@@ -482,7 +497,7 @@ def config_from_args(args: argparse.Namespace) -> Config:
             "ssh_key": args.ssh_key,
             "ssh_password": args.ssh_password,
             "sudo_password": args.sudo_password,
-            "root_crt": args.root_crt or "",
+            "root_crt": args.root_crt or str(default_root_crt_path()),
             "api_endpoint": args.api_endpoint,
             "server_id": args.server_id or "",
             "rack_location": args.rack_location or "",
@@ -503,6 +518,98 @@ def config_from_args(args: argparse.Namespace) -> Config:
     if args.ask_sudo_password:
         config["sudo_password"] = getpass.getpass("sudo password: ")
     return config
+
+
+def _prompt_text(label: str, default: str = "", required: bool = False) -> str:
+    while True:
+        suffix = f" [{default}]" if default else ""
+        value = input(f"{label}{suffix}: ").strip()
+        if not value and default:
+            value = default
+        if value or not required:
+            return value
+        print(f"{label} is required.")
+
+
+def _prompt_secret(label: str, required: bool = False) -> str:
+    while True:
+        value = getpass.getpass(f"{label}: ")
+        if value or not required:
+            return value
+        print(f"{label} is required.")
+
+
+def _prompt_choice(label: str, choices: tuple[str, ...], default: str) -> str:
+    choice_text = "/".join(choices)
+    while True:
+        value = input(f"{label} ({choice_text}) [{default}]: ").strip().lower() or default
+        if value in choices:
+            return value
+        print(f"Choose one of: {choice_text}")
+
+
+def _prompt_yes_no(label: str, default: bool) -> bool:
+    default_text = "Y/n" if default else "y/N"
+    while True:
+        value = input(f"{label} ({default_text}): ").strip().lower()
+        if not value:
+            return default
+        if value in {"y", "yes"}:
+            return True
+        if value in {"n", "no"}:
+            return False
+        print("Enter y or n.")
+
+
+def config_from_interactive() -> tuple[Config, bool]:
+    config = default_config()
+    print(APP_TITLE)
+    print("Press Enter to accept the value shown in brackets.")
+    print(f"Place your certificate at {DEFAULT_LOCAL_ROOT_CRT} (preferred) or {PROJECT_DIR / 'root.crt'}.\n")
+
+    config["host"] = _prompt_text("Target IP / host", str(config["host"]), required=True)
+    config["ssh_user"] = _prompt_text("SSH user", str(config["ssh_user"]), required=True)
+    config["ssh_port"] = _prompt_text("SSH port", str(config["ssh_port"]), required=True)
+    config["auth_mode"] = _prompt_choice("Authentication", ("key", "password"), str(config["auth_mode"]))
+    if config["auth_mode"] == "key":
+        config["ssh_key"] = _prompt_text("SSH key path (blank uses your ssh-agent/default keys)", str(config["ssh_key"]))
+        config["ssh_password"] = ""
+    else:
+        config["ssh_key"] = ""
+        config["ssh_password"] = _prompt_secret("SSH password", required=True)
+    if str(config["ssh_user"]) != "root":
+        config["sudo_password"] = _prompt_secret("Sudo password (blank if passwordless sudo)")
+
+    config["root_crt"] = _prompt_text("Local root.crt path", str(config["root_crt"]), required=True)
+    config["api_endpoint"] = _prompt_text("API endpoint", str(config["api_endpoint"]), required=True)
+    config["server_id"] = _prompt_text("Server ID", str(config["server_id"]), required=True)
+    config["rack_location"] = _prompt_text("Rack location", str(config["rack_location"]), required=True)
+    config["connection"] = _prompt_text("Connection", str(config["connection"]))
+    config["drive_bays"] = _prompt_text("Drive bays", str(config["drive_bays"]))
+    config["region"] = _prompt_text("Region", str(config["region"]))
+    config["image"] = _prompt_text("Container image", str(config["image"]), required=True)
+    config["remote_dir"] = _prompt_text("Remote app dir", str(config["remote_dir"]), required=True)
+    config["cert_dir"] = _prompt_text("Remote cert dir", str(config["cert_dir"]), required=True)
+    config["service_name"] = _prompt_text("systemd service name", str(config["service_name"]), required=True)
+    config["install_docker"] = _prompt_yes_no("Install Docker if missing", bool(config["install_docker"]))
+    config["enable_service"] = _prompt_yes_no("Enable systemd service at boot", bool(config["enable_service"]))
+    config["start_service"] = _prompt_yes_no("Start/restart the collector after deployment", bool(config["start_service"]))
+    validate_only = _prompt_yes_no("Validate SSH only without making remote changes", False)
+    return config, validate_only
+
+
+def run_interactive() -> int:
+    try:
+        config, validate_only = config_from_interactive()
+        ServerDataCollectorDeployer(config, console_log).deploy(validate_only=validate_only)
+        return 0
+    except (DeployError, KeyboardInterrupt) as exc:
+        console_log(f"ERROR: {exc}")
+        return 1
+    except Exception as exc:  # noqa: BLE001 - unexpected failures should still be logged for shell users
+        console_log(f"ERROR: {exc}")
+        console_log(traceback.format_exc())
+        return 1
 
 
 def console_log(message: str) -> None:
@@ -538,12 +645,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.gui:
         return run_gui()
-    if len(sys.argv) == 1:
-        if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
-            return run_gui()
-        parser.print_help(sys.stderr)
-        print("\nNo graphical display was detected. Use command-line options, or run with --gui on a desktop session.", file=sys.stderr)
-        return 2
+    if args.interactive or len(sys.argv) == 1:
+        return run_interactive()
     return run_cli(args)
 
 
