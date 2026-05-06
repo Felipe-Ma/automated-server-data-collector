@@ -563,3 +563,46 @@ After reloading the systemd daemon, start the docker-compose-app service using t
 sudo systemctl start docker-compose-app
 sudo systemctl enable docker-compose-app
 ```
+
+## Linux GUI Deployer
+
+Use `deploy_server_data_collector_gui.py` when you want to deploy or update the collector on a Linux server without manually signing in and typing each setup command. The GUI is designed for Rocky Linux first, while also working with other SSH-accessible Linux targets that already have Docker or use a compatible `dnf` package manager.
+
+### What it does
+
+* Prompts for the target IP or hostname, SSH username, SSH key or password details, sudo password when needed, server metadata, container image, API endpoint, and the `root.crt` file.
+* Copies `root.crt` to the target certificate directory.
+* Creates the remote `docker-compose.yml` with the values entered in the GUI.
+* Creates and reloads a systemd service for the collector.
+* Optionally installs Docker and the Docker Compose plugin on Rocky/RHEL/CentOS/Fedora-style systems using `dnf`.
+* Optionally enables the service at boot and starts/restarts it immediately.
+* Logs every step in the GUI and appends the same log to `~/.server-data-collector-deployer.log` on the machine running the GUI.
+
+### Requirements on the machine running the GUI
+
+The deployer is intentionally a single standard-library Python script. Install only the tools you need for your authentication method:
+
+```bash
+sudo dnf install -y python3 python3-tkinter openssh-clients
+```
+
+SSH-key authentication is recommended. If you must use SSH password authentication, install `sshpass` as well:
+
+```bash
+sudo dnf install -y sshpass
+```
+
+### Run it
+
+```bash
+python3 deploy_server_data_collector_gui.py
+```
+
+1. Enter the target server IP or DNS name.
+2. Select key or password authentication.
+3. Fill in the collector fields such as API endpoint, server ID, rack location, connection type, drive bays, region, and image.
+4. Click **Browse** beside `root.crt` and select the certificate file.
+5. Leave **Install Docker if missing** checked for new Rocky Linux targets.
+6. Click **Validate only** to test SSH connectivity without changing the target, or click **Deploy** to perform the full installation.
+
+The GUI will show each command phase as it completes. If a step fails, the failure is logged with the command output so you can correct credentials, sudo access, network connectivity, package repositories, or Docker issues and run the deployer again.
