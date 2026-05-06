@@ -23,7 +23,7 @@ import tempfile
 import threading
 import traceback
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Dict, Union
 
 APP_TITLE = "Server Data Collector Linux Deployer"
 DEFAULT_API_ENDPOINT = "https://serverdashboard.elements.local/update"
@@ -36,7 +36,7 @@ PROJECT_DIR = Path(__file__).resolve().parent
 DEFAULT_LOCAL_CERT_DIR = PROJECT_DIR / "certs"
 DEFAULT_LOCAL_ROOT_CRT = DEFAULT_LOCAL_CERT_DIR / "root.crt"
 
-Config = dict[str, str | bool]
+Config = Dict[str, Union[str, bool]]
 LogCallback = Callable[[str], None]
 
 
