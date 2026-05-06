@@ -37,6 +37,24 @@ Project is created with:
 
 ## Setup
 
+### Interactive Linux deployer
+
+You can deploy the collector from an interactive shell instead of typing every option on the command line. Put your local certificate at the preferred path below, then run the Python deployer and press Enter to accept any default shown in brackets.
+
+```bash
+mkdir -p certs
+cp root.crt certs/root.crt
+python3 deploy_server_data_collector_gui.py
+```
+
+The deployer also accepts `--interactive` explicitly:
+
+```bash
+python3 deploy_server_data_collector_gui.py --interactive
+```
+
+The prompt asks for the target host, SSH login method, server ID, rack location, Docker/service options, and whether to validate SSH only. It defaults the local certificate path to `certs/root.crt`; if that file is not present, it also checks for `root.crt` in the project root.
+
 ### Windows
 Docker is not supported on Windows Server. Instead this Program is ran via batch file.
 
